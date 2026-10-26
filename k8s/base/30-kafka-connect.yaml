@@ -1,0 +1,81 @@
+# Kafka Connect com o plugin do Debezium (CDC do outbox). Os conectores sao registrados por um Job idempotente
+# a partir de infra/debezium/*.json (fonte unica, compartilhada com o docker-compose).
+apiVersion: v1
+kind: Service
+metadata: { name: kafka-connect, namespace: pedidos-saga, labels: { app: kafka-connect } }
+spec:
+  selector: { app: kafka-connect }
+  ports: [{ name: rest, port: 8083 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: kafka-connect, namespace: pedidos-saga }
+spec:
+  replicas: 1   # 1 task por conector (um slot de replicacao por banco); mais replicas so dao failover
+  selector: { matchLabels: { app: kafka-connect } }
+  template:
+    metadata: { labels: { app: kafka-connect, app.kubernetes.io/part-of: pedidos-saga } }
+    spec:
+      containers:
+        - name: connect
+          image: quay.io/debezium/connect:3.0.8.Final
+          ports: [{ containerPort: 8083, name: rest }]
+          env:
+            - { name: BOOTSTRAP_SERVERS, value: "kafka:9092" }
+            - { name: GROUP_ID, value: connect-cluster }
+            - { name: CONFIG_STORAGE_TOPIC, value: connect_configs }
+            - { name: OFFSET_STORAGE_TOPIC, value: connect_offsets }
+            - { name: STATUS_STORAGE_TOPIC, value: connect_statuses }
+            - { name: CONFIG_STORAGE_REPLICATION_FACTOR, value: "1" }
+            - { name: OFFSET_STORAGE_REPLICATION_FACTOR, value: "1" }
+            - { name: STATUS_STORAGE_REPLICATION_FACTOR, value: "1" }
+            - { name: KAFKA_HEAP_OPTS, value: "-Xmx512m -Xms256m" }
+          resources:
+            requests: { cpu: 200m, memory: 640Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          readinessProbe:
+            httpGet: { path: /connectors, port: 8083 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet: { path: /, port: 8083 }
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: connector-init, namespace: pedidos-saga }
+spec:
+  backoffLimit: 30
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata: { labels: { app: connector-init } }
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: register
+          image: curlimages/curl:8.10.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              # espera os servicos criarem as tabelas outbox (Flyway) antes de registrar os conectores
+              for svc in order-service inventory-service payment-service; do
+                until curl -fsS http://$svc:8080/actuator/health/readiness >/dev/null; do echo "aguardando $svc"; sleep 5; done
+              done
+              until curl -fsS http://kafka-connect:8083/connectors >/dev/null; do echo "aguardando kafka-connect"; sleep 5; done
+              for f in /connectors/*.json; do
+                name=$(basename $f .json)
+                code=$(curl -s -o /tmp/out -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data @$f http://kafka-connect:8083/connectors)
+                case $code in 201|409) echo "conector $name: HTTP $code";; *) echo "falha em $name: HTTP $code"; cat /tmp/out; exit 1;; esac
+              done
+          volumeMounts: [{ name: connectors, mountPath: /connectors, readOnly: true }]
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+      volumes:
+        - name: connectors
+          configMap: { name: debezium-connectors }

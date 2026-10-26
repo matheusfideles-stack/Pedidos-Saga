@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Testcontainers de verdade (runners do GitHub tem Docker): PostgreSQL, Kafka e Redis em containers
+  java-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21, cache: maven }
+      - run: mvn -B -ntp verify -Dsaga.test.infra=docker
+
+  # mesma suite sem Docker (infra embarcada): garante que o fallback continua verde
+  java-embedded:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21, cache: maven }
+      - run: mvn -B -ntp verify -Dsaga.test.infra=embedded
+
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: saga, POSTGRES_PASSWORD: saga, POSTGRES_DB: analytics }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U saga" --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: analytics-worker/go.mod }
+      - run: cd analytics-worker && go vet ./... && go test -v ./...
+        env:
+          TEST_DATABASE_URL: postgres://saga:saga@localhost:5432/analytics?sslmode=disable
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          kubectl kustomize --load-restrictor=LoadRestrictionsNone k8s/base > /dev/null
+          kubectl kustomize --load-restrictor=LoadRestrictionsNone k8s/overlays/keda > /dev/null
+      - run: for f in infra/datadog/*.json infra/debezium/*.json; do python3 -m json.tool "$f" > /dev/null; done

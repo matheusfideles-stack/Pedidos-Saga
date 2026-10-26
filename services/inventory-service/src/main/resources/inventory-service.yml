@@ -1,0 +1,98 @@
+server:
+  port: ${PORT:8082}
+  shutdown: graceful
+
+spring:
+  application:
+    name: inventory-service
+  datasource:
+    url: ${INVENTORY_DB_URL:jdbc:postgresql://localhost:5442/inventory}
+    username: ${DB_USER:saga}
+    password: ${DB_PASSWORD:saga}
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 3000      # espera por conexao do pool (ms)
+      data-source-properties:
+        connectTimeout: 5           # s: abrir conexao com o PostgreSQL
+        loginTimeout: 5             # s
+        socketTimeout: 30           # s: nenhuma query/leitura fica pendurada
+  flyway:
+    locations: classpath:db/common,classpath:db/inventory
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9094}
+    admin:
+      operation-timeout: 10s
+    template:
+      observation-enabled: true   # propaga traceparent nos headers das mensagens produzidas
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 15000
+        request.timeout.ms: 5000
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        isolation.level: read_committed
+        request.timeout.ms: 10000
+        metadata.max.age.ms: 30000   # descobre topicos/particoes novos em ate 30s (padrao: 5 min)
+        session.timeout.ms: 15000
+    listener:
+      observation-enabled: true   # span por mensagem consumida, continuando o trace do traceparent recebido
+      ack-mode: record
+      concurrency: ${KAFKA_CONCURRENCY:3}
+
+management:
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${OTEL_ENABLED:false}
+    metrics:
+      export:
+        enabled: ${OTEL_ENABLED:false}
+        url: ${OTEL_METRICS_ENDPOINT:http://localhost:4318/v1/metrics}
+        step: 10s
+        aggregation-temporality: delta
+  opentelemetry:
+    resource-attributes:
+      "[service.name]": ${spring.application.name}
+      "[deployment.environment]": ${DEPLOY_ENV:local}
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+      # liveness: o processo esta vivo (sem depender de nada externo, para o k8s nao reiniciar por falha de dependencia)
+      # readiness: pode receber trafego (banco acessivel)
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+
+---
+# Logs estruturados em JSON (traceId, spanId, orderId, eventId vem do MDC). Ative com SPRING_PROFILES_ACTIVE=json.
+spring:
+  config:
+    activate:
+      on-profile: json
+logging:
+  structured:
+    format:
+      console: logstash

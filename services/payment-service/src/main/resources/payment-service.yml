@@ -1,0 +1,154 @@
+server:
+  port: ${PORT:8083}
+  shutdown: graceful
+
+spring:
+  application:
+    name: payment-service
+  datasource:
+    url: ${PAYMENT_DB_URL:jdbc:postgresql://localhost:5443/payments}
+    username: ${DB_USER:saga}
+    password: ${DB_PASSWORD:saga}
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 3000      # espera por conexao do pool (ms)
+      data-source-properties:
+        connectTimeout: 5           # s: abrir conexao com o PostgreSQL
+        loginTimeout: 5             # s
+        socketTimeout: 30           # s: nenhuma query/leitura fica pendurada
+  flyway:
+    locations: classpath:db/common,classpath:db/payment
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9094}
+    admin:
+      operation-timeout: 10s
+    template:
+      observation-enabled: true   # propaga traceparent nos headers das mensagens produzidas
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 15000
+        request.timeout.ms: 5000
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        isolation.level: read_committed
+        request.timeout.ms: 10000
+        metadata.max.age.ms: 30000   # descobre topicos/particoes novos em ate 30s (padrao: 5 min)
+        session.timeout.ms: 15000
+        # a chamada ao gateway pode durar alguns segundos: nao deixe o broker considerar o consumidor morto
+        max.poll.interval.ms: 120000
+    listener:
+      observation-enabled: true   # span por mensagem consumida, continuando o trace do traceparent recebido
+      ack-mode: record
+      concurrency: ${KAFKA_CONCURRENCY:3}
+
+payment:
+  gateway:
+    base-url: ${GATEWAY_BASE_URL:}          # vazio = este proprio servico (/sim-gateway)
+    connect-timeout: 500ms
+    read-timeout: 2s
+    sim:
+      latency-ms: ${GATEWAY_LATENCY_MS:30}
+      latency-jitter-ms: ${GATEWAY_LATENCY_JITTER_MS:20}
+      failure-rate: ${GATEWAY_FAILURE_RATE:0.0}        # probabilidade de HTTP 503 transitorio
+      post-commit-delay-ms: ${GATEWAY_POST_COMMIT_DELAY_MS:0}  # cobra e DEMORA a responder (resultado ambiguo)
+      decline-above: ${GATEWAY_DECLINE_ABOVE:10000}     # valores acima disso sao recusados
+  reconciliation:
+    enabled: true
+    interval: ${RECONCILIATION_INTERVAL:PT30S}
+    stale-after: ${RECONCILIATION_STALE_AFTER:PT60S}
+    give-up-after: ${RECONCILIATION_GIVE_UP_AFTER:PT10M}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      gateway:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.saga.payment.gateway.TransientGatewayException
+          - java.util.concurrent.TimeoutException
+  retry:
+    instances:
+      gateway:
+        max-attempts: 3
+        wait-duration: 200ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true          # jitter
+        randomized-wait-factor: 0.5
+        retry-exceptions:                     # somente erros transitorios
+          - com.saga.payment.gateway.TransientGatewayException
+          - java.util.concurrent.TimeoutException
+  bulkhead:
+    instances:
+      gateway:
+        max-concurrent-calls: 20
+        max-wait-duration: 200ms
+  timelimiter:
+    instances:
+      gateway:
+        timeout-duration: 3s
+        cancel-running-future: true
+
+management:
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${OTEL_ENABLED:false}
+    metrics:
+      export:
+        enabled: ${OTEL_ENABLED:false}
+        url: ${OTEL_METRICS_ENDPOINT:http://localhost:4318/v1/metrics}
+        step: 10s
+        aggregation-temporality: delta
+  opentelemetry:
+    resource-attributes:
+      "[service.name]": ${spring.application.name}
+      "[deployment.environment]": ${DEPLOY_ENV:local}
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+      # liveness: o processo esta vivo (sem depender de nada externo, para o k8s nao reiniciar por falha de dependencia)
+      # readiness: pode receber trafego (banco acessivel)
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db
+
+---
+# Logs estruturados em JSON (traceId, spanId, orderId, eventId vem do MDC). Ative com SPRING_PROFILES_ACTIVE=json.
+spring:
+  config:
+    activate:
+      on-profile: json
+logging:
+  structured:
+    format:
+      console: logstash

@@ -1,0 +1,7 @@
+**/target
+.git
+.idea
+**/*.iml
+load-test/results
+docs
+k8s

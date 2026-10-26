@@ -1,0 +1,263 @@
+# Servicos Spring Boot (stateless): 3 replicas, requests/limits, probes liveness/readiness separadas, PDB e HPA por CPU.
+# HPA por LAG do Kafka: overlay k8s/overlays/keda (requer KEDA). Maximo de replicas dos consumidores = particoes / concorrencia.
+---
+apiVersion: v1
+kind: Service
+metadata: { name: order-service, namespace: pedidos-saga, labels: { app: order-service } }
+spec:
+  selector: { app: order-service }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: order-service, namespace: pedidos-saga }
+spec:
+  replicas: 3
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  selector: { matchLabels: { app: order-service } }
+  template:
+    metadata:
+      labels: { app: order-service, app.kubernetes.io/part-of: pedidos-saga }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
+    spec:
+      enableServiceLinks: false   # evita variaveis injetadas (REDIS_PORT=tcp://...) colidindo com a configuracao
+      terminationGracePeriodSeconds: 45
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app: order-service } }
+      containers:
+        - name: order-service
+          image: saga/order-service:local
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8080, name: http }]
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: SPRING_PROFILES_ACTIVE, value: json }
+            - { name: DEPLOY_ENV, value: k8s }
+            - { name: KAFKA_BOOTSTRAP, value: "kafka:9092" }
+            # replicas x concorrencia <= particoes (6): 3 replicas x 2 = 6 consumidores ativos por grupo
+            - { name: KAFKA_CONCURRENCY, value: "2" }
+            - { name: ORDER_DB_URL, value: "jdbc:postgresql://order-db:5432/orders" }
+            - { name: DB_USER, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_USER } } }
+            - { name: DB_PASSWORD, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_PASSWORD } } }
+            - { name: OTEL_ENABLED, value: "false" }
+            - { name: JAVA_OPTS, value: "-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError" }
+            - { name: REDIS_HOST, value: redis }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 36        # ate 3 minutos para subir (Flyway + Kafka)
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop: { exec: { command: ["sh", "-c", "sleep 8"] } }   # deixa o Service tirar o pod do balanceamento
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: order-service, namespace: pedidos-saga }
+spec:
+  minAvailable: 1
+  selector: { matchLabels: { app: order-service } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: order-service, namespace: pedidos-saga }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: order-service }
+  minReplicas: 3
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 120 }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: inventory-service, namespace: pedidos-saga, labels: { app: inventory-service } }
+spec:
+  selector: { app: inventory-service }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: inventory-service, namespace: pedidos-saga }
+spec:
+  replicas: 3
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  selector: { matchLabels: { app: inventory-service } }
+  template:
+    metadata:
+      labels: { app: inventory-service, app.kubernetes.io/part-of: pedidos-saga }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
+    spec:
+      enableServiceLinks: false   # evita variaveis injetadas (REDIS_PORT=tcp://...) colidindo com a configuracao
+      terminationGracePeriodSeconds: 45
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app: inventory-service } }
+      containers:
+        - name: inventory-service
+          image: saga/inventory-service:local
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8080, name: http }]
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: SPRING_PROFILES_ACTIVE, value: json }
+            - { name: DEPLOY_ENV, value: k8s }
+            - { name: KAFKA_BOOTSTRAP, value: "kafka:9092" }
+            # replicas x concorrencia <= particoes (6): 3 replicas x 2 = 6 consumidores ativos por grupo
+            - { name: KAFKA_CONCURRENCY, value: "2" }
+            - { name: INVENTORY_DB_URL, value: "jdbc:postgresql://inventory-db:5432/inventory" }
+            - { name: DB_USER, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_USER } } }
+            - { name: DB_PASSWORD, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_PASSWORD } } }
+            - { name: OTEL_ENABLED, value: "false" }
+            - { name: JAVA_OPTS, value: "-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError" }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 36        # ate 3 minutos para subir (Flyway + Kafka)
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop: { exec: { command: ["sh", "-c", "sleep 8"] } }   # deixa o Service tirar o pod do balanceamento
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: inventory-service, namespace: pedidos-saga }
+spec:
+  minAvailable: 1
+  selector: { matchLabels: { app: inventory-service } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: inventory-service, namespace: pedidos-saga }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: inventory-service }
+  minReplicas: 2
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 120 }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: payment-service, namespace: pedidos-saga, labels: { app: payment-service } }
+spec:
+  selector: { app: payment-service }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: payment-service, namespace: pedidos-saga }
+spec:
+  replicas: 3
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  selector: { matchLabels: { app: payment-service } }
+  template:
+    metadata:
+      labels: { app: payment-service, app.kubernetes.io/part-of: pedidos-saga }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8080"
+    spec:
+      enableServiceLinks: false   # evita variaveis injetadas (REDIS_PORT=tcp://...) colidindo com a configuracao
+      terminationGracePeriodSeconds: 45
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app: payment-service } }
+      containers:
+        - name: payment-service
+          image: saga/payment-service:local
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8080, name: http }]
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: SPRING_PROFILES_ACTIVE, value: json }
+            - { name: DEPLOY_ENV, value: k8s }
+            - { name: KAFKA_BOOTSTRAP, value: "kafka:9092" }
+            # replicas x concorrencia <= particoes (6): 3 replicas x 2 = 6 consumidores ativos por grupo
+            - { name: KAFKA_CONCURRENCY, value: "2" }
+            - { name: PAYMENT_DB_URL, value: "jdbc:postgresql://payment-db:5432/payments" }
+            - { name: DB_USER, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_USER } } }
+            - { name: DB_PASSWORD, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_PASSWORD } } }
+            - { name: OTEL_ENABLED, value: "false" }
+            - { name: JAVA_OPTS, value: "-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError" }
+            - { name: GATEWAY_LATENCY_MS, value: "30" }
+            - { name: GATEWAY_FAILURE_RATE, value: "0.0" }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 36        # ate 3 minutos para subir (Flyway + Kafka)
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop: { exec: { command: ["sh", "-c", "sleep 8"] } }   # deixa o Service tirar o pod do balanceamento
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: payment-service, namespace: pedidos-saga }
+spec:
+  minAvailable: 1
+  selector: { matchLabels: { app: payment-service } }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: payment-service, namespace: pedidos-saga }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: payment-service }
+  minReplicas: 2
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 120 }

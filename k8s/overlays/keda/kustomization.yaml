@@ -1,0 +1,25 @@
+# Overlay opcional: escala inventory-service e payment-service pelo LAG do Kafka (KEDA) em vez de CPU.
+# Pre-requisito: KEDA instalado (helm install keda kedacore/keda -n keda --create-namespace).
+#   kubectl kustomize --load-restrictor=LoadRestrictionsNone k8s/overlays/keda | kubectl apply -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - scaledobjects.yaml
+patches:
+  # o ScaledObject cria o proprio HPA: remove os HPAs por CPU dos consumidores para nao haver dois controladores
+  - patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata: { name: inventory-service, namespace: pedidos-saga }
+  - patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata: { name: payment-service, namespace: pedidos-saga }
+  - patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata: { name: analytics-worker, namespace: pedidos-saga }

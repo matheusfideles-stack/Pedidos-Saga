@@ -1,0 +1,33 @@
+{
+  "name": "payment-outbox",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "payment-db",
+    "database.port": "5432",
+    "database.user": "saga",
+    "database.password": "saga",
+    "database.dbname": "payments",
+    "topic.prefix": "cdc-payments",
+    "plugin.name": "pgoutput",
+    "slot.name": "slot_payments",
+    "publication.name": "pub_payments",
+    "publication.autocreate.mode": "filtered",
+    "table.include.list": "public.outbox",
+    "snapshot.mode": "no_data",
+    "tombstones.on.delete": "false",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "transforms": "outbox",
+    "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+    "transforms.outbox.table.field.event.id": "id",
+    "transforms.outbox.table.field.event.key": "aggregateid",
+    "transforms.outbox.table.field.event.payload": "payload",
+    "transforms.outbox.route.by.field": "aggregatetype",
+    "transforms.outbox.route.topic.replacement": "${routedByValue}.events",
+    "transforms.outbox.table.fields.additional.placement": "type:header:eventType,traceparent:header:traceparent",
+    "transforms.outbox.table.expand.json.payload": "false",
+    "errors.tolerance": "none",
+    "errors.log.enable": "true"
+  }
+}

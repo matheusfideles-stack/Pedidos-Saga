@@ -1,0 +1,58 @@
+# HPA por lag do Kafka. maxReplicaCount respeita: replicas x KAFKA_CONCURRENCY (2) <= particoes (6).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: inventory-service, namespace: pedidos-saga }
+spec:
+  scaleTargetRef: { name: inventory-service }
+  minReplicaCount: 2
+  maxReplicaCount: 3
+  cooldownPeriod: 120
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: inventory-service
+        topic: order.events
+        lagThreshold: "50"
+        offsetResetPolicy: earliest
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: payment-service, namespace: pedidos-saga }
+spec:
+  scaleTargetRef: { name: payment-service }
+  minReplicaCount: 2
+  maxReplicaCount: 3
+  cooldownPeriod: 120
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: payment-service
+        topic: inventory.events
+        lagThreshold: "50"
+        offsetResetPolicy: earliest
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: payment-service
+        topic: order.events
+        lagThreshold: "50"
+        offsetResetPolicy: earliest
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: analytics-worker, namespace: pedidos-saga }
+spec:
+  scaleTargetRef: { name: analytics-worker }
+  minReplicaCount: 2
+  maxReplicaCount: 6
+  cooldownPeriod: 120
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: analytics-worker
+        topic: order.events
+        lagThreshold: "500"
+        offsetResetPolicy: earliest

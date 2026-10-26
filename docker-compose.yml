@@ -1,0 +1,228 @@
+name: pedidos-saga
+
+# Stack completa: 4 PostgreSQL (3 servicos + analytics), Kafka KRaft, Kafka Connect + Debezium (CDC do outbox),
+# Redis, os 3 servicos Spring Boot, analytics-worker (Go) e, opcionalmente, o Datadog Agent.
+#
+#   docker compose up -d --build                         # tudo
+#   docker compose up -d --build --scale order-service=3 --scale inventory-service=3 --scale payment-service=3
+#   COMPOSE_PROFILES=datadog DD_API_KEY=... DD_ENABLED=true docker compose up -d --build   # com Datadog
+# Entrada HTTP unica: http://localhost:8080 (nginx, balanceia as replicas do order-service).
+
+x-postgres: &postgres
+  image: postgres:16-alpine
+  # wal_level=logical e obrigatorio para o Debezium ler o WAL (replicacao logica)
+  command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10", "-c", "max_connections=300"]
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U saga"]
+    interval: 5s
+    timeout: 3s
+    retries: 30
+
+x-service-env: &service-env
+  KAFKA_BOOTSTRAP: kafka:9092
+  PORT: "8080"
+  SPRING_PROFILES_ACTIVE: json
+  DEPLOY_ENV: local
+  OTEL_ENABLED: ${DD_ENABLED:-false}
+  OTEL_TRACES_ENDPOINT: http://datadog-agent:4318/v1/traces
+  OTEL_METRICS_ENDPOINT: http://datadog-agent:4318/v1/metrics
+
+x-service-healthcheck: &service-healthcheck
+  test: ["CMD-SHELL", "curl -fsS http://localhost:8080/actuator/health/readiness || exit 1"]
+  interval: 5s
+  timeout: 3s
+  retries: 40
+  start_period: 20s
+
+services:
+  # ------------------------------------------------------------------ dados
+  order-db:
+    <<: *postgres
+    environment: { POSTGRES_USER: saga, POSTGRES_PASSWORD: saga, POSTGRES_DB: orders }
+    ports: ["5441:5432"]
+    volumes: ["order-db-data:/var/lib/postgresql/data"]
+
+  inventory-db:
+    <<: *postgres
+    environment: { POSTGRES_USER: saga, POSTGRES_PASSWORD: saga, POSTGRES_DB: inventory }
+    ports: ["5442:5432"]
+    volumes: ["inventory-db-data:/var/lib/postgresql/data"]
+
+  payment-db:
+    <<: *postgres
+    environment: { POSTGRES_USER: saga, POSTGRES_PASSWORD: saga, POSTGRES_DB: payments }
+    ports: ["5443:5432"]
+    volumes: ["payment-db-data:/var/lib/postgresql/data"]
+
+  analytics-db:
+    <<: *postgres
+    environment: { POSTGRES_USER: saga, POSTGRES_PASSWORD: saga, POSTGRES_DB: analytics }
+    ports: ["5444:5432"]
+    volumes: ["analytics-db-data:/var/lib/postgresql/data"]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ------------------------------------------------------------------ mensageria + CDC
+  kafka:
+    image: apache/kafka:3.8.1
+    hostname: kafka
+    ports: ["9094:9094"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+    volumes: ["kafka-data:/var/lib/kafka/data"]
+
+  kafka-connect:
+    image: quay.io/debezium/connect:3.0.8.Final
+    depends_on:
+      kafka: { condition: service_healthy }
+    ports: ["8084:8083"]
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: connect-cluster
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/connectors || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # registra os 3 conectores Debezium (outbox event router); roda uma vez e sai
+  connector-init:
+    image: curlimages/curl:8.10.1
+    depends_on:
+      kafka-connect: { condition: service_healthy }
+      order-service: { condition: service_healthy }      # Flyway ja criou as tabelas outbox
+      inventory-service: { condition: service_healthy }
+      payment-service: { condition: service_healthy }
+    volumes: ["./infra/debezium:/connectors:ro"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for f in /connectors/*.json; do
+          name=$$(basename $$f .json)
+          code=$$(curl -s -o /tmp/out -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data @$$f http://kafka-connect:8083/connectors)
+          case $$code in 201|409) echo "conector $$name: HTTP $$code";; *) echo "falha em $$name: HTTP $$code"; cat /tmp/out; exit 1;; esac
+        done
+    restart: "no"
+
+  # ------------------------------------------------------------------ servicos
+  order-service:
+    build: { context: ., args: { SERVICE: order-service } }
+    image: saga/order-service:local
+    depends_on:
+      order-db: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      <<: *service-env
+      ORDER_DB_URL: jdbc:postgresql://order-db:5432/orders
+      REDIS_HOST: redis
+    healthcheck: *service-healthcheck
+    deploy: { replicas: "${ORDER_REPLICAS:-1}" }
+
+  inventory-service:
+    build: { context: ., args: { SERVICE: inventory-service } }
+    image: saga/inventory-service:local
+    depends_on:
+      inventory-db: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    environment:
+      <<: *service-env
+      INVENTORY_DB_URL: jdbc:postgresql://inventory-db:5432/inventory
+    healthcheck: *service-healthcheck
+    deploy: { replicas: "${INVENTORY_REPLICAS:-1}" }
+
+  payment-service:
+    build: { context: ., args: { SERVICE: payment-service } }
+    image: saga/payment-service:local
+    depends_on:
+      payment-db: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    environment:
+      <<: *service-env
+      PAYMENT_DB_URL: jdbc:postgresql://payment-db:5432/payments
+      GATEWAY_LATENCY_MS: ${GATEWAY_LATENCY_MS:-30}
+      GATEWAY_FAILURE_RATE: ${GATEWAY_FAILURE_RATE:-0.0}
+    healthcheck: *service-healthcheck
+    deploy: { replicas: "${PAYMENT_REPLICAS:-1}" }
+
+  # entrada unica: balanceia as replicas do order-service (resolve o DNS do compose a cada 5s)
+  gateway:
+    image: nginx:1.27-alpine
+    depends_on:
+      order-service: { condition: service_healthy }
+    ports: ["8080:80"]
+    volumes: ["./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro"]
+
+  analytics-worker:
+    build: { context: ./analytics-worker }
+    image: saga/analytics-worker:local
+    depends_on:
+      kafka: { condition: service_healthy }
+      analytics-db: { condition: service_healthy }
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_TOPIC: order.events
+      KAFKA_GROUP: analytics-worker
+      DATABASE_URL: postgres://saga:saga@analytics-db:5432/analytics?sslmode=disable
+      METRICS_ADDR: ":9100"
+    ports: ["9100:9100"]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------ observabilidade (opcional)
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7
+    profiles: ["datadog"]
+    environment:
+      DD_API_KEY: ${DD_API_KEY:-}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_HOSTNAME: pedidos-saga-local
+      DD_ENV: local
+      DD_LOGS_ENABLED: "true"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: 0.0.0.0:4318
+      DD_OTLP_CONFIG_METRICS_HISTOGRAMS_MODE: distributions
+      DD_OTLP_CONFIG_METRICS_HISTOGRAMS_SEND_AGGREGATION_METRICS: "true"
+      DD_APM_ENABLED: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./infra/datadog/conf.d/kafka_consumer.d:/etc/datadog-agent/conf.d/kafka_consumer.d:ro
+    depends_on:
+      kafka: { condition: service_healthy }
+
+volumes:
+  order-db-data:
+  inventory-db-data:
+  payment-db-data:
+  analytics-db-data:
+  kafka-data:

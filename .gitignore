@@ -1,0 +1,11 @@
+target/
+*.log
+*.pid
+.idea/
+*.iml
+.vscode/
+analytics-worker/target/
+analytics-worker/analytics-worker
+analytics-worker/analytics-worker.exe
+local-stack/target/
+.env

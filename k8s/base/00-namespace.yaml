@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pedidos-saga
+  labels:
+    app.kubernetes.io/part-of: pedidos-saga
+---
+# Credenciais de DESENVOLVIMENTO (kind/minikube). Em producao: Secret gerenciado (External Secrets, Vault, ...).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: pedidos-saga
+type: Opaque
+stringData:
+  DB_USER: saga
+  DB_PASSWORD: saga

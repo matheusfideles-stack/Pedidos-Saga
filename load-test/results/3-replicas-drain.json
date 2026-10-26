@@ -1,0 +1,9 @@
+{
+  "label": "3-replicas",
+  "replicas": 3,
+  "orders_created_by_k6": 3601,
+  "orders_completed": 3601,
+  "load_seconds": 61,
+  "seconds_until_saga_drained": 68,
+  "saga_completion_rate_per_s": 53.0
+}

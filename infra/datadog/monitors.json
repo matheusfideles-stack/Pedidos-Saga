@@ -1,0 +1,52 @@
+[
+  {
+    "name": "[Saga] Lag alto no consumer group",
+    "type": "metric alert",
+    "query": "avg(last_5m):max:kafka.consumer_lag{*} by {consumer_group,topic} > 500",
+    "message": "Lag de {{value}} mensagens em {{consumer_group.name}} / {{topic.name}} ha 5 minutos.\n\nA saga esta atrasando: pedidos ficam em estados intermediarios por mais tempo.\nRunbook: docs/runbook/runbook.md#lag-do-consumer-sobe\n@oncall-saga",
+    "tags": ["team:saga", "service:order-saga", "runbook:lag"],
+    "options": {
+      "thresholds": { "critical": 500, "warning": 200 },
+      "notify_no_data": false,
+      "require_full_window": false,
+      "renotify_interval": 30,
+      "evaluation_delay": 60,
+      "include_tags": true
+    }
+  },
+  {
+    "name": "[Saga] DLT crescendo",
+    "type": "metric alert",
+    "query": "sum(last_10m):sum:saga.dlt.published{*} by {topic}.as_count() > 0",
+    "message": "{{value}} mensagem(ns) enviada(s) para {{topic.name}} nos ultimos 10 minutos. Mensagens na DLT NAO sao reprocessadas automaticamente.\nRunbook: docs/runbook/runbook.md#a-dlt-cresce\n@oncall-saga",
+    "tags": ["team:saga", "service:order-saga", "runbook:dlt"],
+    "options": {
+      "thresholds": { "critical": 0 },
+      "notify_no_data": false,
+      "require_full_window": false,
+      "renotify_interval": 60,
+      "include_tags": true
+    }
+  },
+  {
+    "name": "[Saga] Circuit breaker do gateway de pagamento aberto",
+    "type": "metric alert",
+    "query": "max(last_5m):max:resilience4j.circuitbreaker.state{name:gateway,state:open} by {host} >= 1",
+    "message": "O circuit breaker do gateway de pagamento esta ABERTO em {{host.name}}. Novas cobrancas falham rapido e pagamentos ficam PENDING ate a reconciliacao.\nRunbook: docs/runbook/runbook.md#o-circuit-breaker-abre\n@oncall-saga",
+    "tags": ["team:saga", "service:payment-service", "runbook:circuit-breaker"],
+    "options": {
+      "thresholds": { "critical": 1 },
+      "notify_no_data": false,
+      "require_full_window": false,
+      "renotify_interval": 15
+    }
+  },
+  {
+    "name": "[Saga] SLO de criacao de pedidos queimando rapido",
+    "type": "slo alert",
+    "query": "burn_rate(\"<ID_DO_SLO_DISPONIBILIDADE_CRIACAO_PEDIDOS>\").over(\"30d\").long_window(\"1h\").short_window(\"5m\") > 14.4",
+    "message": "O error budget do SLO de disponibilidade da criacao de pedidos esta sendo consumido 14x mais rapido que o permitido.\nSubstitua <ID_DO_SLO...> pelo id devolvido por scripts/datadog-apply.sh (o script faz isso).\n@oncall-saga",
+    "tags": ["team:saga", "service:order-service", "slo"],
+    "options": { "thresholds": { "critical": 14.4 }, "notify_no_data": false }
+  }
+]

@@ -1,0 +1,180 @@
+# Quatro PostgreSQL independentes (database-per-service + analytics), com wal_level=logical para o Debezium.
+# StatefulSet de 1 replica cada: suficiente para kind/minikube. Producao: operador (CloudNativePG, Crunchy) ou RDS.
+apiVersion: v1
+kind: Service
+metadata: { name: order-db, namespace: pedidos-saga, labels: { app: order-db } }
+spec:
+  clusterIP: None
+  selector: { app: order-db }
+  ports: [{ name: pg, port: 5432 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: order-db, namespace: pedidos-saga }
+spec:
+  serviceName: order-db
+  replicas: 1
+  selector: { matchLabels: { app: order-db } }
+  template:
+    metadata: { labels: { app: order-db, app.kubernetes.io/part-of: pedidos-saga } }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          args: ["-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10", "-c", "max_connections=300"]
+          env:
+            - { name: POSTGRES_DB, value: orders }
+            - { name: POSTGRES_USER, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_USER } } }
+            - { name: POSTGRES_PASSWORD, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_PASSWORD } } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports: [{ containerPort: 5432, name: pg }]
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "saga"] }
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "saga"] }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 2Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: inventory-db, namespace: pedidos-saga, labels: { app: inventory-db } }
+spec:
+  clusterIP: None
+  selector: { app: inventory-db }
+  ports: [{ name: pg, port: 5432 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: inventory-db, namespace: pedidos-saga }
+spec:
+  serviceName: inventory-db
+  replicas: 1
+  selector: { matchLabels: { app: inventory-db } }
+  template:
+    metadata: { labels: { app: inventory-db, app.kubernetes.io/part-of: pedidos-saga } }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          args: ["-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10", "-c", "max_connections=300"]
+          env:
+            - { name: POSTGRES_DB, value: inventory }
+            - { name: POSTGRES_USER, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_USER } } }
+            - { name: POSTGRES_PASSWORD, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_PASSWORD } } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports: [{ containerPort: 5432, name: pg }]
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "saga"] }
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "saga"] }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 2Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: payment-db, namespace: pedidos-saga, labels: { app: payment-db } }
+spec:
+  clusterIP: None
+  selector: { app: payment-db }
+  ports: [{ name: pg, port: 5432 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: payment-db, namespace: pedidos-saga }
+spec:
+  serviceName: payment-db
+  replicas: 1
+  selector: { matchLabels: { app: payment-db } }
+  template:
+    metadata: { labels: { app: payment-db, app.kubernetes.io/part-of: pedidos-saga } }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          args: ["-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10", "-c", "max_connections=300"]
+          env:
+            - { name: POSTGRES_DB, value: payments }
+            - { name: POSTGRES_USER, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_USER } } }
+            - { name: POSTGRES_PASSWORD, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_PASSWORD } } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports: [{ containerPort: 5432, name: pg }]
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 768Mi }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "saga"] }
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "saga"] }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 2Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: analytics-db, namespace: pedidos-saga, labels: { app: analytics-db } }
+spec:
+  clusterIP: None
+  selector: { app: analytics-db }
+  ports: [{ name: pg, port: 5432 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: analytics-db, namespace: pedidos-saga }
+spec:
+  serviceName: analytics-db
+  replicas: 1
+  selector: { matchLabels: { app: analytics-db } }
+  template:
+    metadata: { labels: { app: analytics-db, app.kubernetes.io/part-of: pedidos-saga } }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - { name: POSTGRES_DB, value: analytics }
+            - { name: POSTGRES_USER, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_USER } } }
+            - { name: POSTGRES_PASSWORD, valueFrom: { secretKeyRef: { name: db-credentials, key: DB_PASSWORD } } }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports: [{ containerPort: 5432, name: pg }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "saga"] }
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "saga"] }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 1Gi } }

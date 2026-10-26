@@ -1,0 +1,9 @@
+# Integracao Kafka do Datadog Agent: fornece kafka.consumer_lag (por consumer group/topico/particao)
+# e kafka.broker_offset (usado para dimensionar as DLTs: topicos *.DLT).
+init_config:
+
+instances:
+  - kafka_connect_str: kafka:9092
+    monitor_unlisted_consumer_groups: true
+    tags:
+      - env:local

@@ -1,0 +1,14 @@
+{
+  "name": "Disponibilidade da criacao de pedidos",
+  "description": "Fracao de POST /orders atendidos sem erro 5xx (respostas 4xx - validacao, Idempotency-Key reutilizada - nao contam como indisponibilidade). A criacao e sincrona e so depende do banco do order-service e do cache; o restante da saga e assincrono e NAO entra neste SLO.",
+  "type": "metric",
+  "query": {
+    "numerator": "sum:http.server.requests.count{uri:/orders,method:post,!status:5*}.as_count()",
+    "denominator": "sum:http.server.requests.count{uri:/orders,method:post}.as_count()"
+  },
+  "thresholds": [
+    { "timeframe": "7d", "target": 99.9, "warning": 99.95 },
+    { "timeframe": "30d", "target": 99.9, "warning": 99.95 }
+  ],
+  "tags": ["team:saga", "service:order-service"]
+}

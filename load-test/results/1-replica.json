@@ -1,0 +1,26 @@
+{
+  "label": "1-replica",
+  "target_rate_per_s": 60,
+  "duration": "60s",
+  "replicas": 1,
+  "create_order": {
+    "throughput_per_s": 60,
+    "avg_ms": 5.6732439166666415,
+    "p50_ms": 3.21615,
+    "p90_ms": 9.00071,
+    "p95_ms": 12.600784999999973,
+    "p99_ms": 40.0574799999996,
+    "max_ms": 256.7812,
+    "error_rate": 0
+  },
+  "saga_e2e_s": {
+    "p50": 17.605,
+    "p95": 33.167500000000004,
+    "p99": 35.5534,
+    "max": 37.049
+  },
+  "saga_confirmed": 165,
+  "saga_cancelled": 6,
+  "saga_not_terminal": 0,
+  "iterations": 3596
+}

@@ -1,0 +1,28 @@
+# Overlay para kind/minikube em maquinas pequenas (ex.: Docker com 8 GB): 1 replica de cada servico e requests menores.
+#   kubectl kustomize --load-restrictor=LoadRestrictionsNone k8s/overlays/kind | kubectl apply -f -
+# (para o teste de escala use o base: 3 replicas e HPA)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - target: { kind: Deployment, name: "(order|inventory|payment)-service" }
+    patch: |-
+      - { op: replace, path: /spec/replicas, value: 1 }
+      - { op: replace, path: /spec/template/spec/containers/0/resources/requests, value: { cpu: 100m, memory: 384Mi } }
+      - { op: replace, path: /spec/template/spec/containers/0/resources/limits, value: { cpu: "1", memory: 640Mi } }
+  - target: { kind: HorizontalPodAutoscaler, name: "(order|inventory|payment)-service" }
+    patch: |-
+      - { op: replace, path: /spec/minReplicas, value: 1 }
+  - target: { kind: Deployment, name: analytics-worker }
+    patch: |-
+      - { op: replace, path: /spec/replicas, value: 1 }
+  - target: { kind: HorizontalPodAutoscaler, name: analytics-worker }
+    patch: |-
+      - { op: replace, path: /spec/minReplicas, value: 1 }
+  - target: { kind: StatefulSet, name: kafka }
+    patch: |-
+      - { op: replace, path: /spec/template/spec/containers/0/resources/requests/memory, value: 768Mi }
+  - target: { kind: Deployment, name: kafka-connect }
+    patch: |-
+      - { op: replace, path: /spec/template/spec/containers/0/resources/requests/memory, value: 512Mi }

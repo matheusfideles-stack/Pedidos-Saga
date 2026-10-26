@@ -1,0 +1,239 @@
+{
+  "title": "Marketplace de Pedidos - Saga",
+  "description": "Saude da saga coreografada: pedidos por estado, latencia por etapa, lag dos consumers, DLT, cache e circuit breaker. Versionado em infra/datadog.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "template_variables": [
+    { "name": "env", "prefix": "deployment.environment", "default": "*" }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "type": "note",
+        "content": "**Fluxo**: PENDING -> INVENTORY_RESERVED -> PAYMENT_AUTHORIZED -> CONFIRMED | CANCELLED. Runbook: docs/runbook/runbook.md",
+        "background_color": "white",
+        "font_size": "14",
+        "text_align": "left",
+        "show_tick": false
+      }
+    },
+    {
+      "definition": {
+        "title": "Taxa de pedidos por estado (transicoes/s)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "q1",
+                "query": "sum:orders.state.transitions{$env} by {to}.as_rate()"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Pedidos criados vs. confirmados vs. cancelados (por minuto)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              { "data_source": "metrics", "name": "created", "query": "sum:orders.created{$env}.as_count()" },
+              { "data_source": "metrics", "name": "confirmed", "query": "sum:orders.state.transitions{$env,to:confirmed}.as_count()" },
+              { "data_source": "metrics", "name": "cancelled", "query": "sum:orders.state.transitions{$env,to:cancelled}.as_count()" }
+            ],
+            "formulas": [
+              { "formula": "created", "alias": "criados" },
+              { "formula": "confirmed", "alias": "confirmados" },
+              { "formula": "cancelled", "alias": "cancelados" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Latencia de cada etapa da saga (p95, evento emitido -> processado)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "q1",
+                "query": "p95:saga.event.latency{$env} by {consumer,type}"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Duracao total da saga ate o estado final (p50 / p99)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              { "data_source": "metrics", "name": "p50", "query": "p50:orders.saga.duration{$env} by {outcome}" },
+              { "data_source": "metrics", "name": "p99", "query": "p99:orders.saga.duration{$env} by {outcome}" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Latencia da chamada ao gateway de pagamento (p95)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              { "data_source": "metrics", "name": "q1", "query": "p95:payment.gateway.charge{$env}" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Lag do consumer group (mensagens atrasadas)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "q1",
+                "query": "max:kafka.consumer_lag{$env} by {consumer_group,topic}"
+              }
+            ]
+          }
+        ],
+        "markers": [{ "value": "y = 500", "display_type": "error dashed", "label": "limite do monitor" }]
+      }
+    },
+    {
+      "definition": {
+        "title": "Tamanho da DLT (mensagens) e novas entradas",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              { "data_source": "metrics", "name": "size", "query": "max:kafka.broker_offset{topic:*.dlt} by {topic}" }
+            ]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              { "data_source": "metrics", "name": "new", "query": "sum:saga.dlt.published{$env} by {topic}.as_count()" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Hit ratio do cache do catalogo (L1 Caffeine / L2 Redis)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              { "data_source": "metrics", "name": "q1", "query": "avg:catalog.cache.hit.ratio{$env} by {layer}" }
+            ]
+          }
+        ],
+        "yaxis": { "min": "0", "max": "1" }
+      }
+    },
+    {
+      "definition": {
+        "title": "Taxa de erro do circuit breaker do gateway (%)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "failed",
+                "query": "sum:resilience4j.circuitbreaker.calls{$env,name:gateway,kind:failed}.as_count()"
+              },
+              {
+                "data_source": "metrics",
+                "name": "total",
+                "query": "sum:resilience4j.circuitbreaker.calls{$env,name:gateway}.as_count()"
+              }
+            ],
+            "formulas": [{ "formula": "100 * failed / total", "alias": "erro %" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Circuit breaker aberto? (1 = aberto)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "area",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "q1",
+                "query": "max:resilience4j.circuitbreaker.state{$env,name:gateway,state:open} by {host}"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Disponibilidade da criacao de pedidos (POST /orders sem 5xx)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "data_source": "metrics",
+                "name": "ok",
+                "query": "sum:http.server.requests.count{$env,uri:/orders,method:post,!status:5*}.as_count()"
+              },
+              {
+                "data_source": "metrics",
+                "name": "all",
+                "query": "sum:http.server.requests.count{$env,uri:/orders,method:post}.as_count()"
+              }
+            ],
+            "formulas": [{ "formula": "100 * ok / all", "alias": "disponibilidade %" }]
+          }
+        ]
+      }
+    }
+  ]
+}

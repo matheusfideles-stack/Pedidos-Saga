@@ -1,0 +1,26 @@
+{
+  "label": "kind-hpa",
+  "target_rate_per_s": 150,
+  "duration": "90s",
+  "replicas": 1,
+  "create_order": {
+    "throughput_per_s": 139.77777777777777,
+    "avg_ms": 1788.0718626130224,
+    "p50_ms": 1479.221,
+    "p90_ms": 3645.843550000001,
+    "p95_ms": 4475.459835,
+    "p99_ms": 5519.296361000004,
+    "max_ms": 30171.6138,
+    "error_rate": 0.016773988393354002
+  },
+  "saga_e2e_s": {
+    "p50": 98.65350000000001,
+    "p95": 105.19125,
+    "p99": 105.89505,
+    "max": 106.071
+  },
+  "saga_confirmed": 4,
+  "saga_cancelled": 0,
+  "saga_not_terminal": 0,
+  "iterations": 12781
+}

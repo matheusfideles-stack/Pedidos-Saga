@@ -1,0 +1,11 @@
+# kind create cluster --name pedidos-saga --config k8s/kind-config.yaml
+# 1 worker basta com o overlay k8s/overlays/kind; para o base completo (3 replicas), adicione mais workers (precisa ~12 GB de RAM).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080   # NodePort do order-service-external
+        hostPort: 8080
+        protocol: TCP
+  - role: worker
