@@ -1,0 +1,9 @@
+{
+  "name": "marketplace-de-pedidos-web",
+  "private": true,
+  "type": "module",
+  "description": "Interface web (HTML, CSS e JavaScript puros, sem build). O package.json existe só para rodar os testes das funções puras.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

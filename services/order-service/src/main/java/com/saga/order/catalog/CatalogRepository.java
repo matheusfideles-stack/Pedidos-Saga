@@ -1,6 +1,7 @@
 package com.saga.order.catalog;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -20,6 +21,14 @@ public class CatalogRepository {
                 .query((rs, n) -> new Product(rs.getString("id"), rs.getString("name"), rs.getBigDecimal("price"),
                         rs.getBoolean("active"), rs.getLong("version")))
                 .optional();
+    }
+
+    /** Produtos ativos, em ordem de codigo. Leitura direta do banco: a listagem nao passa pelo cache de produto. */
+    public List<Product> findActive() {
+        return jdbc.sql("SELECT id, name, price, active, version FROM products WHERE active ORDER BY id")
+                .query((rs, n) -> new Product(rs.getString("id"), rs.getString("name"), rs.getBigDecimal("price"),
+                        rs.getBoolean("active"), rs.getLong("version")))
+                .list();
     }
 
     /** Upsert; incrementa a versao a cada alteracao. */

@@ -3,10 +3,11 @@ package com.saga.order.web;
 import com.saga.order.catalog.CatalogService;
 import com.saga.order.catalog.Product;
 import com.saga.order.catalog.ProductCache;
-import java.util.Map;
 import com.saga.order.web.OrderDtos.ProductRequest;
 import com.saga.order.web.OrderDtos.ProductResponse;
 import jakarta.validation.Valid;
+import java.util.List;
+import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,6 +26,12 @@ public class CatalogController {
     public CatalogController(CatalogService catalog, ProductCache cache) {
         this.cache = cache;
         this.catalog = catalog;
+    }
+
+    /** Produtos ativos, para a vitrine e o formulario de pedido. */
+    @GetMapping
+    public List<ProductResponse> list() {
+        return catalog.listActive().stream().map(CatalogController::toResponse).toList();
     }
 
     @GetMapping("/{id}")

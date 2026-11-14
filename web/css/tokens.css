@@ -1,0 +1,77 @@
+/* Sistema de design: TODOS os valores visuais ficam aqui. Nenhuma outra folha define cor, raio, sombra ou espaco literal. */
+
+:root {
+  /* Tipografia */
+  --font: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.9375rem;
+  --fs-lg: 1.0625rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+  --fs-kpi: 1.75rem;
+
+  /* Superficies (tema escuro, vidro fosco) */
+  --bg-0: #05070c;
+  --bg-1: #0a0e16;
+  --glass: rgba(20, 25, 36, 0.42);
+  --glass-strong: rgba(28, 34, 48, 0.6);
+  --glass-hover: rgba(40, 48, 66, 0.6);
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.17);
+
+  /* Texto */
+  --text: #f2f5fa;
+  --text-muted: #9ba6b6;
+  --text-faint: #6c7788;
+
+  /* Cores semanticas */
+  --accent: #3b82f6;
+  --accent-bright: #60a5fa;
+  --accent-soft: rgba(59, 130, 246, 0.18);
+  --accent-glow: rgba(59, 130, 246, 0.45);
+  --positive: #4ade80;
+  --positive-soft: rgba(74, 222, 128, 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+  --steel: #8aa0b8;
+  --steel-soft: rgba(138, 160, 184, 0.16);
+  --violet: #a78bfa;
+  --violet-soft: rgba(167, 139, 250, 0.16);
+
+  /* Raios */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* Espacamento */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+
+  /* Elevacao e desfoque */
+  --shadow-1: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 18px 50px rgba(0, 0, 0, 0.5);
+  --blur: 22px;
+  --blur-strong: 30px;
+
+  /* Movimento */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur: 160ms;
+  --dur-slow: 320ms;
+
+  /* Layout */
+  --dock-w: 68px;
+  --topbar-h: 64px;
+  --content-max: 1320px;
+
+  color-scheme: dark;
+}

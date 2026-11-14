@@ -3,6 +3,8 @@ package com.saga.order.persistence;
 import com.saga.common.events.Events;
 import com.saga.order.domain.Order;
 import com.saga.order.domain.OrderStatus;
+import com.saga.order.domain.OrderSummary;
+import com.saga.order.domain.StatusChange;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -87,5 +89,32 @@ public class OrderRepository {
     public List<String> history(UUID id) {
         return jdbc.sql("SELECT to_status FROM order_status_history WHERE order_id = :id ORDER BY id")
                 .param("id", id).query(String.class).list();
+    }
+
+    /** Pedidos mais recentes primeiro, sem itens (a listagem nao precisa deles). */
+    public List<OrderSummary> findRecent(int limit) {
+        return jdbc.sql("""
+                        SELECT id, customer_id, status, total, currency, created_at
+                        FROM orders ORDER BY created_at DESC, id LIMIT :limit
+                        """)
+                .param("limit", limit)
+                .query((rs, n) -> new OrderSummary(rs.getObject("id", UUID.class), rs.getString("customer_id"),
+                        OrderStatus.valueOf(rs.getString("status")), rs.getBigDecimal("total"),
+                        rs.getString("currency"), rs.getObject("created_at", OffsetDateTime.class)))
+                .list();
+    }
+
+    /** Linha do tempo completa de um pedido, na ordem das transicoes. */
+    public List<StatusChange> historyOf(UUID id) {
+        return jdbc.sql("""
+                        SELECT from_status, to_status, trigger, at FROM order_status_history
+                        WHERE order_id = :id ORDER BY id
+                        """)
+                .param("id", id)
+                .query((rs, n) -> new StatusChange(
+                        rs.getString("from_status") == null ? null : OrderStatus.valueOf(rs.getString("from_status")),
+                        OrderStatus.valueOf(rs.getString("to_status")), rs.getString("trigger"),
+                        rs.getObject("at", OffsetDateTime.class)))
+                .list();
     }
 }

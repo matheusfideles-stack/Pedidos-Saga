@@ -4,6 +4,7 @@ import com.saga.common.events.Events;
 import com.saga.common.events.Topics;
 import com.saga.common.outbox.OutboxWriter;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,11 @@ public class CatalogService {
         this.repository = repository;
         this.cache = cache;
         this.outbox = outbox;
+    }
+
+    /** Produtos ativos para a vitrine e o formulario de pedido. */
+    public List<Product> listActive() {
+        return repository.findActive();
     }
 
     /** Leitura usada na criacao do pedido: cache-aside (L1 Caffeine -> L2 Redis -> PostgreSQL). */

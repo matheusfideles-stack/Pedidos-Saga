@@ -13,12 +13,12 @@ export ORDER_REPLICAS="$REPLICAS" INVENTORY_REPLICAS="$REPLICAS" PAYMENT_REPLICA
 echo ">> docker compose up (replicas=$REPLICAS)"
 docker compose up -d --build
 
-echo ">> aguardando o gateway (http://localhost:8080)"
+echo ">> aguardando o gateway (http://localhost:${GATEWAY_PORT:-8080})"
 for _ in $(seq 1 120); do
-  curl -fsS http://localhost:8080/actuator/health/readiness >/dev/null 2>&1 && break
+  curl -fsS "http://localhost:${GATEWAY_PORT:-8080}/orders?limit=1" >/dev/null 2>&1 && break
   sleep 3
 done
-curl -fsS http://localhost:8080/actuator/health/readiness >/dev/null
+curl -fsS "http://localhost:${GATEWAY_PORT:-8080}/orders?limit=1" >/dev/null
 
 echo ">> aguardando o registro dos conectores Debezium"
 for _ in $(seq 1 60); do
@@ -30,10 +30,10 @@ docker compose ps -a connector-init
 curl -fsS http://localhost:8084/connectors; echo
 
 echo ">> smoke test ponta a ponta"
-BASE_URL=http://localhost:8080 ./scripts/smoke-test.sh
+BASE_URL=http://localhost:${GATEWAY_PORT:-8080} ./scripts/smoke-test.sh
 
 if [ "${SKIP_IT:-0}" != "1" ]; then
   echo ">> testes de integracao (Testcontainers)"
   mvn -B -ntp verify -pl integration-tests -am
 fi
-echo ">> pronto. API: http://localhost:8080  |  Kafka Connect: http://localhost:8084  |  analytics: http://localhost:9100/metrics"
+echo ">> pronto. API: http://localhost:${GATEWAY_PORT:-8080}  |  Kafka Connect: http://localhost:8084  |  analytics: http://localhost:9100/metrics"

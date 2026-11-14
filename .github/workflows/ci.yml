@@ -48,3 +48,12 @@ jobs:
           kubectl kustomize --load-restrictor=LoadRestrictionsNone k8s/base > /dev/null
           kubectl kustomize --load-restrictor=LoadRestrictionsNone k8s/overlays/keda > /dev/null
       - run: for f in infra/datadog/*.json infra/debezium/*.json; do python3 -m json.tool "$f" > /dev/null; done
+
+  # funcoes puras da interface (metricas do dashboard): sem navegador, sem dependencias
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: cd web && node --test

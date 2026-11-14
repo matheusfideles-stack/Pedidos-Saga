@@ -1,0 +1,104 @@
+/* Reset, tipografia e fundo. A foto de fundo e opcional: coloque "fundo.webp" em web/. Sem ela, aparece um gradiente grafite. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  background: var(--bg-0);
+  -webkit-font-smoothing: antialiased;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45); /* legibilidade sobre a foto de fundo */
+}
+
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: var(--fs-lg); font-weight: 600; }
+h3 { font-size: var(--fs-md); font-weight: 600; }
+
+a { color: var(--accent-bright); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button, input, select { font: inherit; color: inherit; }
+
+small { font-size: var(--fs-sm); color: var(--text-muted); }
+
+ul, ol { margin: 0; padding: 0; list-style: none; }
+
+/* Fundo em camadas: foto (opcional) + escurecimento + brilhos azuis discretos */
+.fundo {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(42% 38% at 88% 14%, rgba(251, 146, 60, 0.30), transparent 70%),
+    radial-gradient(48% 42% at 8% 88%, rgba(20, 184, 166, 0.26), transparent 70%),
+    radial-gradient(55% 45% at 14% 6%, rgba(59, 130, 246, 0.30), transparent 70%),
+    radial-gradient(50% 45% at 94% 94%, rgba(99, 102, 241, 0.22), transparent 70%),
+    linear-gradient(160deg, var(--bg-1) 0%, var(--bg-0) 100%);
+}
+
+.fundo__foto {
+  position: absolute;
+  inset: 0;
+  background-image: var(--fundo-foto, url("../fundo.webp"));
+  background-size: cover;
+  background-position: center;
+  opacity: 1;
+}
+
+.fundo__veu {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(5, 7, 12, 0.3), rgba(5, 7, 12, 0.6));
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection { background: var(--accent-glow); }
+
+* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Link para pular direto ao conteudo (acessibilidade por teclado) */
+.pular {
+  position: fixed;
+  top: var(--s-2);
+  left: var(--s-2);
+  z-index: 300;
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--r-md);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  transform: translateY(-200%);
+  transition: transform var(--dur) var(--ease);
+}
+
+.pular:focus { transform: none; text-decoration: none; }

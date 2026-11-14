@@ -8,7 +8,9 @@ import com.saga.common.outbox.OutboxWriter;
 import com.saga.order.catalog.CatalogService;
 import com.saga.order.catalog.Product;
 import com.saga.order.domain.Order;
+import com.saga.order.domain.OrderSummary;
 import com.saga.order.domain.SagaTrigger;
+import com.saga.order.domain.StatusChange;
 import com.saga.order.persistence.OrderRepository;
 import com.saga.order.service.ApiExceptions.OrderNotFoundException;
 import com.saga.order.service.ApiExceptions.UnknownProductException;
@@ -114,6 +116,17 @@ public class OrderService {
     @Transactional(readOnly = true)
     public Order load(UUID id) {
         return orders.find(id).orElseThrow(() -> new OrderNotFoundException(id));
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderSummary> recent(int limit) {
+        return orders.findRecent(limit);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StatusChange> history(UUID id) {
+        orders.find(id).orElseThrow(() -> new OrderNotFoundException(id));
+        return orders.historyOf(id);
     }
 
     /** Itens repetidos viram um so (soma); ordenado por produto => hash canonico e ordem de lock estavel. */

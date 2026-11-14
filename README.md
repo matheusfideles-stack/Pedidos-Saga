@@ -196,7 +196,26 @@ REPLICAS=3 make up       # 3 réplicas de cada serviço
 # Windows sem make:  .\scripts\up.ps1 [-Replicas 3]
 ```
 
-Entrada única: `http://localhost:8080` (nginx → order-service). Kafka Connect: `:8084`. Métricas do worker Go: `:9100/metrics`.
+Entrada única: `http://localhost:8080` (se a 8080 estiver ocupada, use `GATEWAY_PORT=8088 ./scripts/up.sh`). A interface web abre na raiz, e a API responde nos mesmos caminhos (`/orders`, `/catalog`, `/inventory`, `/payments`). Kafka Connect: `:8084`. Métricas do worker Go: `:9100/metrics`.
+
+
+**Interface web** (`web/`, HTML, CSS e JavaScript puros, sem build), em estilo de vidro escuro (*glassmorphism*) sobre uma foto de fundo opcional.
+Todos os números vêm da API: nada é inventado nem fixo na tela.
+
+| Tela | O que mostra |
+|---|---|
+| **Início** | dashboard: pedidos de hoje, valor confirmado, em andamento e taxa de confirmação (com tendência e variação sobre os 60 min anteriores), gráfico de pedidos por hora, atividade recente, estoque crítico, cache L1/L2 e distribuição por status |
+| **Novo pedido** | formulário com validação visual, prévia do total e a `Idempotency-Key` da tentativa (reenviar após falha de rede não duplica o pedido) |
+| **Pedidos** | lista com busca por cliente/código e filtro por status, atualizada sozinha; vira cartões no celular |
+| **Detalhe do pedido** | resumo, itens, pagamento e linha do tempo da saga; cancelamento com confirmação |
+| **Estoque** | disponível, reservado, nível e situação de cada produto |
+| **Catálogo** | produtos, **edição em modal** (publica o evento que invalida o cache nas réplicas) e saúde do cache |
+
+O cabeçalho tem o estado da API e um sino com avisos reais (estoque baixo e cancelamentos nas últimas 24 h). Em telas pequenas a barra lateral vira barra inferior.
+
+Organização do código: `css/tokens.css` concentra o sistema de design (cores, raios, espaçamentos, sombras); `js/components/` tem os componentes reutilizáveis
+(card, botão com carregamento, modal acessível, aviso, menu suspenso, gráficos, campos); `js/screens/` uma tela por arquivo; `js/metrics.js` as contas do dashboard
+(funções puras). A foto de fundo se troca em **Configurações → Aparência → Trocar foto** (fica salva neste navegador). O padrão é `web/fundo.webp`. Recomendado: 2560 × 1440 px. Testes das contas: `cd web && node --test`.
 
 ```bash
 curl -X POST localhost:8080/orders -H 'Content-Type: application/json' -H 'Idempotency-Key: abc-1' \
